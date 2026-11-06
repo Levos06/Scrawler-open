@@ -1,0 +1,9 @@
+Scrawler-open
+Copyright 2026 Lev Ossadtchi
+
+MathJax (mathjax-full, installed by npm into tools/mathjax) is Copyright The MathJax Consortium, Apache-2.0.
+examples/ref_hwr200.npy is one line of the HWR200 dataset (AntiplagiatCompany/HWR200, Apache-2.0), scan traced to pen strokes.
+The style encoder was also trained on traced HWR200 lines.
+The tracer (trace/) was trained on data credited in trace/TRAINING_DATA.md, including BRUSH, MathWriting, Korean Handwriting Strokes, OUHD-L, Make Me a Hanzi and Google Fonts.
+examples/from_scan.png shows one line of HWR200.
+trace/example_open_lines.png includes a render of Korean Handwriting Strokes by Jonathan Baudanza (hangul.ink), handwriting by Jo YW, CC BY-SA 4.0, and so is under CC BY-SA 4.0; it also shows OUHD-L (CC BY 4.0) and Digital Peter (MIT).

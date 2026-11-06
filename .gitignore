@@ -1,0 +1,8 @@
+# weights come from Hugging Face: python download_weights.py
+ckpt_*
+trace/weights/
+.cache/
+tools/mathjax/node_modules
+__pycache__/
+out*/
+.DS_Store
