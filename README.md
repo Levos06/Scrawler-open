@@ -108,6 +108,16 @@ The style vector comes from a line-level writer encoder. Fraction bars, radicals
 | `tools/mathjax/layout.mjs` | LaTeX -> glyph boxes |
 | `data/glyph_stroke_counts.json` | per glyph class, how many real glyphs had 1, 2, ... strokes; counts only |
 
+## The model on the site
+
+[synthink.dev](https://synthink.dev) writes a line in your handwriting right in the browser: [try it there](https://synthink.dev/generate/). The text model that runs on the site is published with the other weights on Hugging Face as [`ckpt_dl/u3ref/fp16/step060000_fp16.pt`](https://huggingface.co/levossadtchi/Scrawler-open/blob/main/ckpt_dl/u3ref/fp16/step060000_fp16.pt) (a PyTorch checkpoint; the site runs the same weights converted to ONNX).
+
+It is the text model of this release trained for 60 000 more steps, with two additions: traced lines of 190 HWR200 writers in the training data, and attention from every generated point to the pen points of the reference line. The model reads the reference line itself, not only its style vector.
+
+Measured on traced lines of 9 writers the model never saw: the cosine of a writer classifier between a generated line and the writer's own line is 0.71, against 0.47 for the release text model; to other writers it is 0.46 for both. Legibility did not change: 47.1% clean lines on the set of the table below, the same as "Text model alone". By eye the gain in likeness is modest.
+
+`write_pages.py` does not use this checkpoint: `scrawler/text_model.py` has no reference attention yet, and the pages shown here are written by the text model that `download_weights.py` fetches. On the site every line is sampled four times and the most legible one is kept.
+
 ## Evaluation
 
 240 lines of real notes from writers the generator never saw, each written from one reference line by the same writer. An LLM judge (Gemini 4 Argon) lists errors in each line; "clean" means no error of severity 2 or higher. Pairs are re-sampled for the 95% intervals.
@@ -139,6 +149,7 @@ Style similarity by the writer encoder (cosine to the writer's real line, one re
 ## Training data
 
 - **Generator models:** tablet handwriting of 13 writers who agreed to this use, about 63 000 lines and 86 000 glyphs. Writer names are removed from the weights. The notes themselves are not published.
+- **Text model of the site:** the same, plus traced lines of 190 writers of [HWR200](https://huggingface.co/datasets/AntiplagiatCompany/HWR200) (Apache-2.0).
 - **Style encoder:** the same kind of tablet data, plus traced lines of [HWR200](https://huggingface.co/datasets/AntiplagiatCompany/HWR200) (Apache-2.0).
 - **Tracer:** a mix of tablet notes and open sets, some with non-commercial or ShareAlike terms. See [trace/TRAINING_DATA.md](trace/TRAINING_DATA.md), including the open question about ShareAlike.
 
