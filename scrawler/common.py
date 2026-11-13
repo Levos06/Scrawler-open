@@ -25,6 +25,9 @@ if DEVICE == "cuda":
 
 CKPT_TEXT = os.path.join(ROOT, "ckpt_dl", "b4styc", "fp16", "step003000_fp16.pt")
 CKPT_PLANNER = os.path.join(ROOT, "ckpt_dl", "planner7", "best.pt")
+CKPT_SITE_TEXT = os.path.join(ROOT, "ckpt_dl", "u3ref", "fp16", "step060000_fp16.pt")
+CKPT_RECOGNISER = os.path.join(ROOT, "ckpt_ctc4", "ctc_fp16.pt")
+CKPT_CLASSIFIER = os.path.join(ROOT, "ckpt_stylecls", "embed_fp16.pt")
 CKPT_STYLE = os.path.join(ROOT, "ckpt_semb3_all", "best.pt")
 CKPT_GLYPH = os.path.join(ROOT, "ckpt_glyph_dn_u2s", "fp16", "step050000.pt")
 CKPT_GLYPH_CLASSIFIER = os.path.join(ROOT, "ckpt_dl", "glyph_cls2.pt")
@@ -35,5 +38,6 @@ MATHJAX_DIR = os.path.join(ROOT, "tools", "mathjax")
 
 def load_checkpoint(path):
     if not os.path.exists(path):
-        raise SystemExit(f"{path} not found. Run: python download_weights.py")
+        hint = " --site" if path in (CKPT_SITE_TEXT, CKPT_RECOGNISER, CKPT_CLASSIFIER) else ""
+        raise SystemExit(f"{path} not found. Run: python download_weights.py{hint}")
     return torch.load(path, map_location=DEVICE, weights_only=True)

@@ -62,14 +62,17 @@ For a good result:
 
 The tracer weights have their own licence caveat, see [its training data](trace/TRAINING_DATA.md).
 
-### From tablet strokes
+### From a tablet
 
-If you have the pen strokes already, skip the tracer. Export them as a JSON list of strokes, each a list of `[x, y]` points with y pointing down, in writing order.
+If the line was written in a note app, its pen strokes are in the app's file and no tracer is needed. `tablet/app_line.py` reads GoodNotes, Notewise, Huawei Notes, Kilonotes and Samsung Notes. The recipe for each app, and for the apps that are not read, is in [tablet/README.md](tablet/README.md).
 
 ```bash
+python tablet/app_line.py notes.goodnotes my_line.json --page 3 --line 2 --svg check.svg
 python make_ref.py my_line.json my_line.npy
 python write_pages.py notes.txt out --ref my_line.npy
 ```
+
+If you have the strokes from somewhere else, write them as a JSON list of strokes, each a list of `[x, y]` points with y pointing down, in writing order: that is what `make_ref.py` takes.
 
 The default style is one traced line of the open HWR200 dataset.
 
@@ -98,25 +101,59 @@ The style vector comes from a line-level writer encoder. Fraction bars, radicals
 | Path | What |
 |---|---|
 | `write_pages.py` | text file -> pages: wrapping, page layout, the order of the steps |
+| `write_line.py` | one line of text in the hand of a reference line, the way the site does it |
 | `scrawler/text_model.py` | text model and duration planner |
+| `scrawler/site_model.py` | the site's text model, recogniser, writer classifier and the choice of the best attempt |
 | `scrawler/style_encoder.py` | one line -> style vector |
 | `scrawler/glyph_model.py` | glyph model and the classifier that picks variants |
 | `scrawler/formula.py` | formula layout, pen-line marks, inserting formulas into text |
 | `scrawler/render.py`, `render_pages.py` | strokes -> PDF, SVG, PNG |
 | `make_ref.py` | your strokes -> a style line |
 | `trace/` | the tracer, one file |
+| `tablet/` | a line out of a note app: readers of GoodNotes, Notewise, Huawei Notes, Kilonotes and Samsung Notes files |
 | `tools/mathjax/layout.mjs` | LaTeX -> glyph boxes |
 | `data/glyph_stroke_counts.json` | per glyph class, how many real glyphs had 1, 2, ... strokes; counts only |
 
 ## The model on the site
 
-[synthink.dev](https://synthink.dev) writes a line in your handwriting right in the browser: [try it there](https://synthink.dev/generate/). The text model that runs on the site is published with the other weights on Hugging Face as [`ckpt_dl/u3ref/fp16/step060000_fp16.pt`](https://huggingface.co/levossadtchi/Scrawler-open/blob/main/ckpt_dl/u3ref/fp16/step060000_fp16.pt) (a PyTorch checkpoint; the site runs the same weights converted to ONNX).
+[synthink.dev](https://synthink.dev) writes a line in your handwriting right in the browser: [try it there](https://synthink.dev/generate/). Every model the site runs is in this release, and `write_line.py` does the same on your machine: one line of your handwriting from a photo or a tablet goes in, a new line in that hand comes out.
 
-It is the text model of this release trained for 60 000 more steps, with two additions: traced lines of 190 HWR200 writers in the training data, and attention from every generated point to the pen points of the reference line. The model reads the reference line itself, not only its style vector.
+```bash
+python download_weights.py --site --tracer
+pip install -r trace/requirements.txt
+python trace/scrawler_trace.py my_line.png --out my_line.json --svg my_line.svg   # photo of one line -> pen strokes
+python make_ref.py my_line.json my_line.npy                                         # pen strokes -> reference line
+python write_line.py "Мороз и солнце; день чудесный!" out_line --ref my_line.npy --ref-text "what your line says"
+```
+
+For a line from a tablet, the tracer step is replaced by `tablet/app_line.py`, see [tablet/README.md](tablet/README.md).
+
+`out_line/` gets `line.svg`, `line.png` and `line.pdf` with the chosen attempt, `attempts.png` with all four, and `strokes.json`. The first argument can also be a `.txt` file with one line of text per row. Formulas are not written here. A line takes about 9 seconds on an Apple M5 Max (MPS).
+
+| On the site | Here | What it does |
+|---|---|---|
+| `den.onnx`, `refpts.onnx` | `ckpt_dl/u3ref/fp16/step060000_fp16.pt` | text model that also attends to the pen points of the reference line |
+| `planner.onnx` | `ckpt_dl/planner7/best.pt` | pen points per character |
+| `semb.onnx` | `ckpt_semb3_all/best.pt` | style vector of the reference line |
+| `rec.onnx` | `ckpt_ctc4/ctc_fp16.pt` | recogniser: how legible an attempt is |
+| `scls.onnx` | `ckpt_stylecls/embed_fp16.pt` | writer classifier without its class layer: how close an attempt is to the reference |
+| `fix.onnx`, `tenc.onnx`, `tstep.onnx` | `trace/weights/` | ink restorer and tracer, for the photo route |
+
+The weights are on [Hugging Face](https://huggingface.co/levossadtchi/Scrawler-open) and `download_weights.py --site` fetches them; the site runs the same weights converted to ONNX.
+
+The recipe, in `scrawler/site_model.py`:
+
+1. The planner gives the number of pen points for every character. These are multiplied by the writer's spread: the length of the reference line in points over the length the planner gives for the text of that line, clipped to [0.6, 1.4]. This is why `--ref-text` is asked for. Without it the recogniser reads the reference, which gets most letters right but not all.
+2. The text model writes the line four times, with guidance 1.5 and 20 steps.
+3. The recogniser keeps the attempts whose character error rate is within 0.02 of the lowest, and of those the writer classifier picks the one closest to the reference.
+
+The code was checked against the ONNX files the site serves: from the same noise the pen points agree to 0.0003 of the line height and the same attempt is chosen.
+
+The text model is the text model of this release trained for 60 000 more steps, with two additions: traced lines of 190 HWR200 writers in the training data, and attention from every generated point to the pen points of the reference line. The model reads the reference line itself, not only its style vector.
 
 Measured on traced lines of 9 writers the model never saw: the cosine of a writer classifier between a generated line and the writer's own line is 0.71, against 0.47 for the release text model; to other writers it is 0.46 for both. Legibility did not change: 47.1% clean lines on the set of the table below, the same as "Text model alone". By eye the gain in likeness is modest.
 
-`write_pages.py` does not use this checkpoint: `scrawler/text_model.py` has no reference attention yet, and the pages shown here are written by the text model that `download_weights.py` fetches. On the site every line is sampled four times and the most legible one is kept.
+`write_pages.py` does not use the site model: pages and formulas are written by the text model that plain `download_weights.py` fetches.
 
 ## Evaluation
 
@@ -140,6 +177,7 @@ Style similarity by the writer encoder (cosine to the writer's real line, one re
 ## Known weaknesses
 
 - The text model sometimes swaps, drops or adds a letter. There is no spell check.
+- The site model (`write_line.py`) often adds a stray stroke to the first word of a line, an underline or a strike-through: a stroke detector found one in the chosen attempt for 10 of 20 test hands.
 - A one-letter formula inside a sentence can collide with the neighbouring word.
 - About 2% of glyphs are the best of the variants the classifier rejected, and may be misshapen.
 - Rare symbols without their own class are drawn as a similar one (for example `\simeq` as `\approx`).
@@ -150,6 +188,8 @@ Style similarity by the writer encoder (cosine to the writer's real line, one re
 
 - **Generator models:** tablet handwriting of 13 writers who agreed to this use, about 63 000 lines and 86 000 glyphs. Writer names are removed from the weights. The notes themselves are not published.
 - **Text model of the site:** the same, plus traced lines of 190 writers of [HWR200](https://huggingface.co/datasets/AntiplagiatCompany/HWR200) (Apache-2.0).
+- **Recogniser:** the tablet lines above, the same lines rendered to images and traced back, and traced lines of HWR200.
+- **Writer classifier:** tablet lines of 15 writers: 12 of the 13 above and three more.
 - **Style encoder:** the same kind of tablet data, plus traced lines of [HWR200](https://huggingface.co/datasets/AntiplagiatCompany/HWR200) (Apache-2.0).
 - **Tracer:** a mix of tablet notes and open sets, some with non-commercial or ShareAlike terms. See [trace/TRAINING_DATA.md](trace/TRAINING_DATA.md), including the open question about ShareAlike.
 

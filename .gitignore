@@ -3,6 +3,7 @@ ckpt_*
 trace/weights/
 .cache/
 tools/mathjax/node_modules
+node_modules/
 __pycache__/
 out*/
 .DS_Store
