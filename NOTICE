@@ -9,3 +9,4 @@ examples/from_scan.png shows one line of HWR200.
 trace/example_open_lines.png includes a render of Korean Handwriting Strokes by Jonathan Baudanza (hangul.ink), handwriting by Jo YW, CC BY-SA 4.0, and so is under CC BY-SA 4.0; it also shows OUHD-L (CC BY 4.0) and Digital Peter (MIT).
 The recogniser (ckpt_ctc4) was also trained on traced HWR200 lines.
 tablet/samsung/sdocx2ink.mjs uses the npm package @twango/sdocx (GPL-3.0, https://github.com/twangodev/sdocx). npm installs it separately; it is not distributed here.
+The English and Russian model (ckpt_dl/u4s2, ckpt_semb4, ckpt_ctc6) was trained on BRUSH (Brown University, https://dsd.cs.brown.edu/), whose terms allow non-commercial research use only; these weights carry that restriction.

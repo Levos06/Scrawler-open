@@ -83,8 +83,8 @@ class StyleNet(nn.Module):
         return self.head(torch.cat([mean, top], -1))
 
 
-def load_style_net():
-    state = load_checkpoint(CKPT_STYLE)
+def load_style_net(path=CKPT_STYLE):
+    state = load_checkpoint(path)
     net = StyleNet(out_dim=256, d=state["D"]).to(DEVICE)
     net.load_state_dict(state["m"])
     net.eval()

@@ -11,7 +11,10 @@ In the folder `out` (it must not exist yet):
 - attempts.png: all attempts, the chosen one marked with a bar on the left
 - strokes.json: every attempt as strokes, with its character error rate and its closeness to the reference
 
-The recipe is in scrawler/site_model.py. The style comes from --ref (an .npy from make_ref.py). --ref-text is what is written
+--model bilingual writes English as well as Russian (python download_weights.py --bilingual); its weights are for
+non-commercial research only, see README. The recipe is in scrawler/site_model.py.
+
+The style comes from --ref (an .npy from make_ref.py). --ref-text is what is written
 in that line; it sets how wide the writer writes. Without it the recogniser reads the reference, which is right in most
 letters but not all, so give the text when you know it.
 """
@@ -85,6 +88,7 @@ def main():
     ap.add_argument("out", help="output folder, must not exist")
     ap.add_argument("--ref", default=DEFAULT_REF, help="the style: one line of handwriting, [n, 3] .npy from make_ref.py")
     ap.add_argument("--ref-text", help="what is written in the reference line; read by the recogniser if not given")
+    ap.add_argument("--model", default="site", choices=["site", "bilingual"], help="site: the model of synthink.dev; bilingual: English and Russian")
     ap.add_argument("--attempts", type=int, default=ATTEMPTS, help="samples per line; the best one is kept")
     ap.add_argument("--seed", type=int, default=0, help="another seed gives another writing of the same text")
     ap.add_argument("--pen", type=float, default=1.1, help="pen width in points")
@@ -97,7 +101,7 @@ def main():
     else:
         texts = [args.text.strip()]
 
-    model = SiteModel()
+    model = SiteModel(args.model)
     reference = np.load(args.ref).astype(np.float32)
     ref_text = args.ref_text
     if ref_text is None and os.path.abspath(args.ref) == os.path.abspath(DEFAULT_REF):

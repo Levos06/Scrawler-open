@@ -9,6 +9,11 @@ Three things differ from scrawler/text_model.py:
 - Every line is sampled four times. A recogniser keeps the attempts that read best (character error rate within 0.02 of the
   lowest), and of those a writer classifier picks the one closest to the reference.
 
+SiteModel("bilingual") is the English and Russian model: the site model trained further on English pen lines of BRUSH, with a
+style encoder that also tells English writers apart. The recipe is the same, with two changes measured on it: an English line is
+read by a recogniser that knows English handwriting, and a Russian line that starts with a capital letter gets for that letter
+the length the planner gives it inside a phrase (without this the first word often comes out with a stray stroke).
+
 Lines are arrays [n, 3] of (dx, dy, pen_up) with line height 1, as everywhere in this package.
 """
 import numpy as np
@@ -17,6 +22,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .common import AMP, CKPT_CLASSIFIER, CKPT_PLANNER, CKPT_RECOGNISER, CKPT_SITE_TEXT, DEVICE, load_checkpoint
+from .common import CKPT_BILINGUAL_RECOGNISER, CKPT_BILINGUAL_STYLE, CKPT_BILINGUAL_TEXT, CKPT_STYLE
 from .style_encoder import SCALE, features, load_style_net, resample, style_vector
 from .text_model import ADVANCE, ALPHA_BAR, GUIDANCE, MAX_POINTS, NOISE_STEPS, SAMPLE_STEPS, SCALE_X, SCALE_Y
 from .text_model import Denoiser, Planner, _plan, time_embedding
@@ -25,6 +31,15 @@ ATTEMPTS = 4
 SPREAD_MIN, SPREAD_MAX = 0.6, 1.4
 CER_SLACK = 0.02
 REF_STEP = 0.05
+MODELS = {
+    "site": dict(text=CKPT_SITE_TEXT, style=CKPT_STYLE, recognisers=dict(any=CKPT_RECOGNISER)),
+    "bilingual": dict(text=CKPT_BILINGUAL_TEXT, style=CKPT_BILINGUAL_STYLE, recognisers=dict(ru=CKPT_RECOGNISER, any=CKPT_BILINGUAL_RECOGNISER)),
+}
+FIRST_LETTER_PREFIX = "и "  # bilingual model, Russian: the first letter is planned as if the line went on after this
+
+
+def is_russian(text):
+    return any("а" <= c.lower() <= "я" or c in "ёЁ" for c in text)
 
 
 def to_strokes(line):
@@ -173,8 +188,12 @@ def _edit_rate(target, hypothesis):
 
 
 class SiteModel:
-    def __init__(self):
-        state = load_checkpoint(CKPT_SITE_TEXT)
+    def __init__(self, kind="site"):
+        if kind not in MODELS:
+            raise ValueError(f"unknown model {kind!r}: {' or '.join(MODELS)}")
+        self.kind = kind
+        paths = MODELS[kind]
+        state = load_checkpoint(paths["text"])
         self.itos = state["itos"]
         self.stoi = {s: i for i, s in enumerate(self.itos)}
         self.null_token = len(self.itos)
@@ -186,11 +205,13 @@ class SiteModel:
         self.planner = Planner(len(state["itos"])).to(DEVICE)
         self.planner.load_state_dict(state["m"])
         self.planner.eval()
-        self.style_net = load_style_net()
-        state = load_checkpoint(CKPT_RECOGNISER)
-        self.recogniser = Recogniser(len(state["itos"])).to(DEVICE)
-        self.recogniser.load_state_dict({k: v.float() for k, v in state["m"].items()})
-        self.recogniser.eval()
+        self.style_net = load_style_net(paths["style"])
+        self.recognisers = {}
+        for name, path in paths["recognisers"].items():
+            state = load_checkpoint(path)
+            net = Recogniser(len(state["itos"])).to(DEVICE)
+            net.load_state_dict({k: v.float() for k, v in state["m"].items()})
+            self.recognisers[name] = net.eval()
         state = load_checkpoint(CKPT_CLASSIFIER)
         self.embedder = WriterEmbedder().to(DEVICE)
         self.embedder.load_state_dict({k: v.float() for k, v in state["m"].items()})
@@ -208,11 +229,14 @@ class SiteModel:
         d = torch.expm1(out).clamp(min=1).round().long().cpu().numpy()
         return [int(v) for v in d[0, 1:-1]]
 
+    def _recogniser(self, text):
+        return self.recognisers["ru" if "ru" in self.recognisers and is_russian(text) else "any"]
+
     @torch.no_grad()
-    def _read(self, lines):
+    def _read(self, lines, recogniser=None):
         """Equal-length lines -> the recognised character ids of each."""
         x = np.stack([np.stack([q[:, 0] * 20.0, q[:, 1] * 20.0, q[:, 2], np.cumsum(q[:, 1])], 1) for q in lines]).astype(np.float32)
-        best = self.recogniser(torch.from_numpy(x).to(DEVICE)).argmax(-1).cpu().numpy()
+        best = (recogniser or self.recognisers["any"])(torch.from_numpy(x).to(DEVICE)).argmax(-1).cpu().numpy()
         out = []
         for row in best:
             ids, prev = [], 0
@@ -259,6 +283,9 @@ class SiteModel:
             raise ValueError("no characters the model knows")
         ids = [self.stoi[c] for c in text]
         durations = [max(1, int(round(d * ref["spread"]))) for d in self._durations(text, ref["semb"])]
+        if self.kind == "bilingual" and text[0].isupper() and is_russian(text[0]):
+            inside = self._durations(FIRST_LETTER_PREFIX + text, ref["semb"])[len(FIRST_LETTER_PREFIX)]
+            durations[0] = min(durations[0], max(1, int(round(max(1, inside) * ref["spread"]))))
         length = sum(durations)
         if length > MAX_POINTS:
             raise ValueError(f"the line is too long: {length} pen points, the model takes {MAX_POINTS}. Shorten the text.")
@@ -304,7 +331,7 @@ class SiteModel:
             d[-1, 2] = 1
             lines.append(d)
 
-        cer = np.array([_edit_rate(ids, h) for h in self._read(lines)], np.float32)
+        cer = np.array([_edit_rate(ids, h) for h in self._read(lines, self._recogniser(text))], np.float32)
         cos = np.array([float(self._embed(q) @ ref["embedding"]) for q in lines], np.float32)
         legible = np.flatnonzero(cer <= cer.min() + CER_SLACK)
         pick = int(legible[np.argmax(cos[legible])])
